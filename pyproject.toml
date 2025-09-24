@@ -1,0 +1,15 @@
+    [project]
+    name = "stitch"
+    version = "0.0.1"
+    description = ""
+    authors = [
+        { name = "Alon Schwartzblat", email = "alon.ponch@gmail.com" },
+    ]
+    requires-python = ">=3.10"
+    dependencies = [
+        "PyYAML",
+        "androguard"
+    ]
+    [build-system]
+    requires = ["setuptools>=80.9.0"]
+    build-backend = "setuptools.build_meta"
