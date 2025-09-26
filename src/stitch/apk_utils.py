@@ -18,9 +18,7 @@ def is_bundle(path: os.PathLike) -> bool:
     return False
 
 
-def extract_apk(apk_path: os.PathLike, temp_path: Path) -> None:
-    if os.path.exists(temp_path / EXTRACTED_PATH):
-        return
+def extract_apk(apk_path: os.PathLike, temp_path: Path, extracted_path: Optional[Path] = None) -> None:
     if is_bundle(apk_path):
         with zipfile.ZipFile(apk_path, 'r') as zip_file:
             zip_file.extractall(temp_path / BUNDLE_APK_EXTRACTED_PATH)
@@ -41,7 +39,7 @@ def extract_apk(apk_path: os.PathLike, temp_path: Path) -> None:
             "-q",
             "-r",
             "--output",
-            temp_path / EXTRACTED_PATH,
+            extracted_path if extracted_path is not None else temp_path / EXTRACTED_PATH,
             apk_path,
         ],
         timeout=20 * 60,
@@ -63,7 +61,7 @@ def compile_apk(input_path: Path, output_path: Path) -> None:
         APKTOOL_PATH,
         "build",
         "-q",
-        "--use-aapt2",
+        # "--use-aapt2",
         str(input_path),
         "--output",
         str(output_path)
@@ -73,9 +71,9 @@ def compile_apk(input_path: Path, output_path: Path) -> None:
     )
 
 
-def sign_apk(original_apk_path: Path, apk_path: Path, output_path: Path, bundle_apk_output: Optional[Path]) -> None:
+def sign_apk(original_apk_path: Path, apk_path: Path, output_path: Path) -> None:
     apk_files = [str(apk_path)]
-    for file in glob.glob(str(bundle_apk_output / '*.apk')):
+    for file in glob.glob(str(BUNDLE_APK_EXTRACTED_PATH / '*.apk')):
         apk_files.append(str(file))
     for file in apk_files:
         args = ["java", "-jar", UBER_APK_SIGNER_PATH]

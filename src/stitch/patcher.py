@@ -8,15 +8,17 @@ import subprocess
 import lxml.etree
 from androguard.core.apk import APK
 from androguard.util import set_log
-from .common import ManifestKeys
+
+from .common import ManifestKeys, SMALI_GENERATOR_TEMP_PATH, SMALI_GENERATOR_OUTPUT_PATH, SMALI_EXTRACTED_PATH, \
+    BUNDLE_APK_EXTRACTED_PATH, EXTRACTED_PATH
 from .apk_utils import find_smali_file_by_class_name, extract_apk, is_bundle
 
 set_log('CRITICAL')
 INVOKE_LINE = '\n\tinvoke-static {}, Lcom/smali_generator/TheAmazingPatch;->on_load()V\n\t'
 
 
-def patch_artifacts(args, smali_generator_temp_path: pathlib.Path) -> None:
-    with open(args.artifactory, 'r') as file:
+def patch_artifacts(artifactory: pathlib.Path, smali_generator_temp_path: pathlib.Path) -> None:
+    with open(artifactory, 'r') as file:
         artifactory = json.load(file)
     for file in glob.iglob(str(smali_generator_temp_path / '**' / '**'), recursive=True, include_hidden=True):
         if os.path.isdir(file):
@@ -31,21 +33,21 @@ def patch_artifacts(args, smali_generator_temp_path: pathlib.Path) -> None:
                 f.write(data)
 
 
-def prepare_smali(args) -> None:
-    smali_generator_temp_path = args.temp_path / config.SMALI_GENERATOR_PATH
+def prepare_smali(temp_path: pathlib.Path, artifactory: pathlib.Path, external_module: pathlib.Path) -> None:
+    smali_generator_temp_path = temp_path / SMALI_GENERATOR_TEMP_PATH
     print('[+] Copying the smali generator...')
-    shutil.copytree(config.SMALI_GENERATOR_PATH, smali_generator_temp_path)
+    shutil.copytree(external_module, smali_generator_temp_path)
     print('[+] Patching the artifacts...')
-    patch_artifacts(args, smali_generator_temp_path)
+    patch_artifacts(artifactory, smali_generator_temp_path)
     print('[+] Assembling the java...')
     subprocess.check_call(['./gradlew', 'assembleRelease'], cwd=smali_generator_temp_path)
     print('[+] Extracting the smali...')
-    extract_apk(smali_generator_temp_path / config.SMALI_GENERATOR_OUTPUT_PATH,
-                smali_generator_temp_path / config.SMALI_GENERATOR_SMALI_PATH)
+    extract_apk(smali_generator_temp_path / SMALI_GENERATOR_OUTPUT_PATH, temp_path,
+                smali_generator_temp_path / SMALI_EXTRACTED_PATH)
 
 
-def get_activities_with_entry_points(apk_path: str) -> list:
-    manifest: lxml.etree.Element = APK(apk_path).get_android_manifest_xml()
+def get_activities_with_entry_points(apk_path: pathlib.Path) -> list:
+    manifest: lxml.etree.Element = APK(str(apk_path)).get_android_manifest_xml()
     activities = []
     for element in manifest.find('.//application').getchildren():
         should_patch = False
@@ -70,31 +72,28 @@ def patch_or_add_function(smali_file_path: pathlib.Path, function_name: str) -> 
         file.write(smali_file)
 
 
-def add_static_call_to_on_load(args, class_name: str, function_name: str) -> None:
-    smali_file_path = find_smali_file_by_class_name(args.temp_path / config.EXTRACTED_TEMP_DIR,
-                                                    class_name)
+def add_static_call_to_on_load(temp_path: pathlib.Path, class_name: str, function_name: str) -> None:
+    smali_file_path = find_smali_file_by_class_name(temp_path / EXTRACTED_PATH, class_name)
     if smali_file_path is None:
         print(f'[-] Failed to find smali file for {class_name}')
         return
     patch_or_add_function(smali_file_path, function_name)
 
 
-def patch_entries(args) -> None:
+def patch_entries(apk_path: pathlib.Path, temp_path: pathlib.Path) -> None:
     print('[+] Searching for activities with entry points...')
     activities_to_patch = get_activities_with_entry_points(
-        pathlib.Path(args.temp_path) / config.BUNDLE_APK_EXTRACTED_PATH / 'base.apk' if is_bundle(
-            args.apk_path) else args.apk_path)
+        pathlib.Path(temp_path) / BUNDLE_APK_EXTRACTED_PATH / 'base.apk' if is_bundle(
+            apk_path) else apk_path)
     print(f'[+] Found {len(activities_to_patch)} activities with entry points')
     for activity in activities_to_patch:
-        add_static_call_to_on_load(args, activity.get(
+        add_static_call_to_on_load(temp_path, activity.get(
             ManifestKeys.TARGET_ACTIVITY if activity.tag == 'activity-alias' else ManifestKeys.NAME),
                                    'onCreate' if 'activity' in activity.tag else '<init>'
                                    )
 
 
 def patch_apk(args) -> None:
-    print('[+] Preparing the smali...')
-    prepare_smali(args)
     print('[+] Applying the custom smali...')
     shutil.copytree(args.temp_path / config.SMALI_GENERATOR_PATH / config.SMALI_GENERATOR_SMALI_PATH / 'smali',
                     args.temp_path / config.EXTRACTED_TEMP_DIR / 'smali',
