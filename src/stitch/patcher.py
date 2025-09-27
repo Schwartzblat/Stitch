@@ -91,18 +91,3 @@ def patch_entries(apk_path: pathlib.Path, temp_path: pathlib.Path) -> None:
             ManifestKeys.TARGET_ACTIVITY if activity.tag == 'activity-alias' else ManifestKeys.NAME),
                                    'onCreate' if 'activity' in activity.tag else '<init>'
                                    )
-
-
-def patch_apk(args) -> None:
-    print('[+] Applying the custom smali...')
-    shutil.copytree(args.temp_path / config.SMALI_GENERATOR_PATH / config.SMALI_GENERATOR_SMALI_PATH / 'smali',
-                    args.temp_path / config.EXTRACTED_TEMP_DIR / 'smali',
-                    dirs_exist_ok=True)
-    print('[+] Injecting the custom so...')
-    os.makedirs(args.temp_path / config.EXTRACTED_TEMP_DIR / 'lib' / args.arch, exist_ok=True)
-    shutil.copytree(
-        args.temp_path / config.SMALI_GENERATOR_PATH / config.SMALI_GENERATOR_SMALI_PATH / 'lib' / args.arch,
-        args.temp_path / config.EXTRACTED_TEMP_DIR / 'lib' / args.arch,
-        dirs_exist_ok=True)
-    print('[+] Adding calls to the custom smali...')
-    patch_entries(args)
