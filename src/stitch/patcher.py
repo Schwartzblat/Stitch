@@ -90,7 +90,7 @@ def patch_entries(apk_path: Path, temp_path: Path) -> None:
     for activity in activities_to_patch:
         add_static_call_to_on_load(temp_path, activity.get(
             ManifestKeys.TARGET_ACTIVITY if activity.tag == 'activity-alias' else ManifestKeys.NAME),
-                                   'onCreate' if 'activity' in activity.tag else '<init>')
+            'onCreate' if 'activity' in activity.tag else '<init>')
 
 
 def patch_google_api_key(temp_path: Path, package_name: str, custom_google_api_key: str) -> None:

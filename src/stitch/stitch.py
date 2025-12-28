@@ -27,6 +27,8 @@ class Stitch:
         self.apk_path = Path(apk_path)
         self.output_apk = Path(output_apk)
         self.temp_path = Path(temp_path)
+        if self.temp_path.exists():
+            raise Exception('[!] The temp path already exists')
         self.external_module = Path(external_module)
         self.arch = arch
         self.artifactory_list = [] if artifactory_list is None else artifactory_list
@@ -83,4 +85,3 @@ class Stitch:
 
     def clean_up(self):
         shutil.rmtree(self.temp_path, ignore_errors=True)
-        self.artifactory.unlink(missing_ok=True)
