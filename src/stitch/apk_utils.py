@@ -63,19 +63,23 @@ def compile_apk(input_path: Path, output_path: Path) -> None:
             apktool_yml['doNotCompress'].append('so')
         with open(yml_path, 'w') as file:
             yaml.safe_dump(apktool_yml, file, default_flow_style=False, sort_keys=False)
-    subprocess.check_call([
-        "java",
-        "-jar",
-        APKTOOL_PATH,
-        "build",
-        "-q",
-        str(input_path),
-        "--output",
-        str(output_path)
-    ],
-        timeout=20 * 60,
-
-    )
+    for i in range(2):
+        try:
+            subprocess.check_call([
+                "java",
+                "-jar",
+                APKTOOL_PATH,
+                "build",
+                "-q",
+                str(input_path),
+                "--output",
+                str(output_path)
+            ], timeout=20 * 60
+            )
+            break
+        except Exception as e:
+            if i == 1:
+                raise e
 
 
 def sign_apk(temp_path: Path, original_apk_path: Path, apk_path: Path, output_path: Path) -> None:
