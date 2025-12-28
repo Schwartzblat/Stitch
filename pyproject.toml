@@ -5,7 +5,10 @@
     authors = [
         { name = "Alon Schwartzblat", email = "alon.ponch@gmail.com" },
     ]
-    requires-python = ">=3.10"
+    requires-python = ">=3.11"
+    readme = "README.md"
+    license = "MIT"
+    license-files = ["LICENSE"]
     dependencies = [
         "PyYAML",
         "androguard"
