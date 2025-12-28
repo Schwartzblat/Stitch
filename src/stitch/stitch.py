@@ -2,11 +2,16 @@ import json
 import os
 import shutil
 from pathlib import Path
+from typing import List
+
+from stitch.artifactory_generator.SimpleArtifactoryFinder import SimpleArtifactoryFinder
 
 from .apk_utils import compile_apk, sign_apk
+from .artifactory_generator.generate_artifactory import generate_artifactory
 from .common import SMALI_EXTRACTED_PATH, SMALI_GENERATOR_TEMP_PATH, EXTRACTED_PATH
 from . import apk_utils
 from . import patcher
+
 
 class Stitch:
     apk_path: Path
@@ -16,13 +21,15 @@ class Stitch:
     external_module: Path
     arch: str
 
-    def __init__(self, apk_path: str, output_apk: str = 'out.apk', temp_path: str = './temp', artifactory: str = './artifactory.json', external_module: str = './smali_generator', arch: str = 'arm64-v8a'):
+    def __init__(self, apk_path: str, output_apk: str = 'out.apk', temp_path: str = './temp',
+                 external_module: str = './smali_generator',
+                 arch: str = 'arm64-v8a', artifactory_list: List[SimpleArtifactoryFinder] = None):
         self.apk_path = Path(apk_path)
         self.output_apk = Path(output_apk)
         self.temp_path = Path(temp_path)
-        self.artifactory = Path(artifactory)
         self.external_module = Path(external_module)
         self.arch = arch
+        self.artifactory_list = [] if artifactory_list is None else artifactory_list
         os.makedirs(str(self.temp_path), exist_ok=True)
 
     def prepare_artifactory(self):
@@ -38,14 +45,13 @@ class Stitch:
             with open(self.artifactory, 'w') as file:
                 json.dump({'SOME_CONST_KEY': 'VALUE'}, file)
 
-
     def patch(self):
         apk_utils.extract_apk(self.apk_path, self.temp_path)
 
-        self.prepare_artifactory()
+        artifactory = generate_artifactory(self.temp_path, self.artifactory_list)
 
         print('[+] Preparing the smali...')
-        patcher.prepare_smali(self.temp_path, self.artifactory, self.external_module)
+        patcher.prepare_smali(self.temp_path, self.external_module, artifactory)
 
         print('[+] Applying the custom smali...')
         shutil.copytree(self.temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'smali',

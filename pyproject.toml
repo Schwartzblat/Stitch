@@ -7,8 +7,8 @@
     ]
     requires-python = ">=3.10"
     dependencies = [
-        "PyYAML",
-        "androguard"
+#        "PyYAML",
+#        "androguard"
     ]
     [build-system]
     requires = ["setuptools>=80.9.0"]

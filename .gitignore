@@ -186,3 +186,4 @@ fabric.properties
 **.xapk
 extracted/
 test.py
+smali_generator
