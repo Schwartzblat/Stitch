@@ -5,6 +5,7 @@ import enum
 APKTOOL_PATH = files('stitch').joinpath('bin/apktool_2.12.1.jar')
 UBER_APK_SIGNER_PATH = files('stitch').joinpath('./bin/uber-apk-signer-1.2.1.jar')
 EXTRACTED_PATH = 'extracted'
+BUNDLE_DIR_PATH = 'bundle_apks'
 BUNDLE_APK_EXTRACTED_PATH = Path('bundle')
 SMALI_GENERATOR_TEMP_PATH = './smali_generator'
 SMALI_EXTRACTED_PATH = './smali_extracted'

@@ -98,11 +98,13 @@ class Stitch:
                 package_name = APK(str(self.apk_path)).get_package()
             patcher.patch_google_api_key(self.temp_path, package_name, self.google_api_key)
 
+        temp_output_apk = self.temp_path / 'unsigned.apk'
+
         print('[+] Compiling APK...')
-        compile_apk(self.temp_path / EXTRACTED_PATH, self.output_apk)
+        compile_apk(self.temp_path / EXTRACTED_PATH, temp_output_apk)
 
         print('[+] Signing APK...')
-        sign_apk(self.temp_path, self.apk_path, self.output_apk, self.output_apk)
+        sign_apk(self.temp_path, self.apk_path, temp_output_apk, self.output_apk)
 
     def __enter__(self):
         return self

@@ -6,7 +6,7 @@ import subprocess
 import typing
 import zipfile
 import yaml
-from stitch.common import APKTOOL_PATH, UBER_APK_SIGNER_PATH, EXTRACTED_PATH, BUNDLE_APK_EXTRACTED_PATH
+from stitch.common import APKTOOL_PATH, UBER_APK_SIGNER_PATH, EXTRACTED_PATH, BUNDLE_APK_EXTRACTED_PATH, BUNDLE_DIR_PATH
 
 main_apk_name = 'base.apk'
 
@@ -30,12 +30,10 @@ def extract_apk(apk_path: os.PathLike, temp_path: Path, extracted_path: typing.O
     if is_bundle(apk_path):
         with zipfile.ZipFile(apk_path, 'r') as zip_file:
             zip_file.extractall(temp_path / BUNDLE_APK_EXTRACTED_PATH)
-        shutil.rmtree('./bundle_apks', ignore_errors=True)
-        os.makedirs('./bundle_apks', exist_ok=True)
+        os.makedirs(temp_path / BUNDLE_DIR_PATH, exist_ok=True)
         for apk_file in glob.iglob(str(temp_path / BUNDLE_APK_EXTRACTED_PATH / '*.apk')):
             if os.path.basename(apk_file) != main_apk_name:
-                shutil.copy(apk_file, './bundle_apks')
-
+                shutil.copy(apk_file, temp_path / BUNDLE_DIR_PATH)
         extract_apk(temp_path / BUNDLE_APK_EXTRACTED_PATH / main_apk_name, temp_path)
         return
     subprocess.check_call(
