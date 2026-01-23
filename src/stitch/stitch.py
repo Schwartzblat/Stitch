@@ -55,9 +55,23 @@ class Stitch:
         print('[+] Preparing the smali...')
         patcher.prepare_smali(self.temp_path, self.external_module, artifactory)
 
-        print('[+] Applying the custom smali...')
+        smali_folders = [folder for folder in
+                         (self.temp_path / EXTRACTED_PATH).iterdir() if
+                         folder.is_dir() and (folder.name.startswith('smali_classes') or folder.name == 'smali')]
+        new_smali_folders = [patcher.get_new_smali_folder(self.temp_path / EXTRACTED_PATH) for _ in
+                             range(len(smali_folders))]
+        print(f'[+] Applying the custom smali into {new_smali_folders[0].name}...')
+
+        for i, folder in enumerate(smali_folders):
+            # move every first folder within to the new smali folder
+            for file in folder.iterdir():
+                target_folder = new_smali_folders[i % len(new_smali_folders)]
+                if not (target_folder / file.name).exists():
+                    shutil.move(file, target_folder)
+                    break
+        target_smali_folder = patcher.get_new_smali_folder(self.temp_path / EXTRACTED_PATH)
         shutil.copytree(self.temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'smali',
-                        self.temp_path / EXTRACTED_PATH / 'smali',
+                        target_smali_folder,
                         dirs_exist_ok=True)
         print('[+] Injecting the custom so...')
         os.makedirs(self.temp_path / EXTRACTED_PATH / 'lib' / self.arch, exist_ok=True)

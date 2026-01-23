@@ -1,6 +1,6 @@
 [project]
 name = "stitch-test"
-version = "0.0.7"
+version = "0.0.9"
 description = ""
 authors = [
     { name = "Alon Schwartzblat", email = "alon.ponch@gmail.com" },
@@ -14,7 +14,7 @@ dependencies = [
     "androguard"
 ]
 [build-system]
-requires = ["setuptools>=80.9.0"]
+requires = ["setuptools>=80.10.1"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
