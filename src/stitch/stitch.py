@@ -4,7 +4,10 @@ import shutil
 from pathlib import Path
 from typing import List
 
+from androguard.core.apk import APK
+from stitch.apk_utils import is_bundle
 from stitch.artifactory_generator.SimpleArtifactoryFinder import SimpleArtifactoryFinder
+from stitch.common import BUNDLE_APK_EXTRACTED_PATH
 
 from .apk_utils import compile_apk, sign_apk
 from .artifactory_generator.generate_artifactory import generate_artifactory
@@ -20,10 +23,11 @@ class Stitch:
     artifactory: Path
     external_module: Path
     arch: str
+    google_api_key: str
 
     def __init__(self, apk_path: str, output_apk: str = 'out.apk', temp_path: str = './temp',
                  external_module: str = './smali_generator',
-                 arch: str = 'arm64-v8a', artifactory_list: List[SimpleArtifactoryFinder] = None):
+                 arch: str = 'arm64-v8a', artifactory_list: List[SimpleArtifactoryFinder] = None, google_api_key: str = None):
         self.apk_path = Path(apk_path)
         self.output_apk = Path(output_apk)
         self.temp_path = Path(temp_path)
@@ -33,6 +37,7 @@ class Stitch:
         self.arch = arch
         self.artifactory_list = [] if artifactory_list is None else artifactory_list
         os.makedirs(str(self.temp_path), exist_ok=True)
+        self.google_api_key = google_api_key
 
     def prepare_artifactory(self):
         if self.artifactory.exists():
@@ -83,6 +88,15 @@ class Stitch:
 
         print('[+] Adding calls to the custom smali...')
         patcher.patch_entries(self.apk_path, self.temp_path)
+
+        if self.google_api_key is not None:
+            print('[+] Patching google api key...')
+            if is_bundle(self.apk_path):
+                from stitch.apk_utils import main_apk_name
+                package_name = APK(str(self.temp_path / BUNDLE_APK_EXTRACTED_PATH / main_apk_name)).get_package()
+            else:
+                package_name = APK(str(self.apk_path)).get_package()
+            patcher.patch_google_api_key(self.temp_path, package_name, self.google_api_key)
 
         print('[+] Compiling APK...')
         compile_apk(self.temp_path / EXTRACTED_PATH, self.output_apk)
