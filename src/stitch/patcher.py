@@ -60,27 +60,27 @@ def get_activities_with_entry_points(apk_path: Path) -> list:
     return activities
 
 
-def patch_or_add_function(smali_file_path: Path, function_name: str) -> None:
+def patch_or_add_function(smali_file_path: Path, function_name: str, invoke_line: str) -> None:
     with open(smali_file_path, 'r') as file:
         smali_file = file.read()
     matches = re.findall(fr'\.method \w+ [^\n]*{function_name}[^\n]*\n[^\n]+', smali_file)
     if len(matches) == 0:
         pass
     for match in matches:
-        smali_file = smali_file.replace(match, match + INVOKE_LINE)
+        smali_file = smali_file.replace(match, f'{match}\n\t{invoke_line}\n\t')
     with open(smali_file_path, 'w') as file:
         file.write(smali_file)
 
 
-def add_static_call_to_on_load(temp_path: Path, class_name: str, function_name: str) -> None:
+def add_static_call_to_on_load(temp_path: Path, class_name: str, function_name: str, invoke_line: str) -> None:
     smali_file_path = find_smali_file_by_class_name(temp_path / EXTRACTED_PATH, class_name)
     if smali_file_path is None:
         print(f'[-] Failed to find smali file for {class_name}')
         return
-    patch_or_add_function(smali_file_path, function_name)
+    patch_or_add_function(smali_file_path, function_name, invoke_line)
 
 
-def patch_entries(apk_path: Path, temp_path: Path) -> None:
+def patch_entries(apk_path: Path, temp_path: Path, invoke_line: str) -> None:
     from stitch.apk_utils import main_apk_name
     print('[+] Searching for activities with entry points...')
     activities_to_patch = get_activities_with_entry_points(
@@ -90,7 +90,7 @@ def patch_entries(apk_path: Path, temp_path: Path) -> None:
     for activity in activities_to_patch:
         add_static_call_to_on_load(temp_path, activity.get(
             ManifestKeys.TARGET_ACTIVITY if activity.tag == 'activity-alias' else ManifestKeys.NAME),
-            'onCreate' if 'activity' in activity.tag else '<init>')
+            'onCreate' if 'activity' in activity.tag else '<init>', invoke_line)
 
 
 def patch_google_api_key(temp_path: Path, package_name: str, custom_google_api_key: str) -> None:

@@ -11,7 +11,7 @@ from stitch.common import BUNDLE_APK_EXTRACTED_PATH
 
 from .apk_utils import compile_apk, sign_apk
 from .artifactory_generator.generate_artifactory import generate_artifactory
-from .common import SMALI_EXTRACTED_PATH, SMALI_GENERATOR_TEMP_PATH, EXTRACTED_PATH
+from .common import SMALI_EXTRACTED_PATH, SMALI_GENERATOR_TEMP_PATH, EXTRACTED_PATH, ExternalModule
 from . import apk_utils
 from . import patcher
 
@@ -21,19 +21,25 @@ class Stitch:
     output_apk: Path
     temp_path: Path
     artifactory: Path
-    external_module: Path
+    external_modules: List[ExternalModule]
     arch: str
     google_api_key: str
 
     def __init__(self, apk_path: str, output_apk: str = 'out.apk', temp_path: str = './temp',
-                 external_module: str = './smali_generator',
-                 arch: str = 'arm64-v8a', artifactory_list: List[SimpleArtifactoryFinder] = None, google_api_key: str = None):
+                 external_modules: List[ExternalModule] = None,
+                 arch: str = 'arm64-v8a', artifactory_list: List[SimpleArtifactoryFinder] = None,
+                 google_api_key: str = None):
+        if external_modules is None:
+            external_modules = [ExternalModule(
+                Path('./smali_generator'),
+                'invoke-static {}, Lcom/smali_generator/TheAmazingPatch;->on_load()V'
+            )]
         self.apk_path = Path(apk_path)
         self.output_apk = Path(output_apk)
         self.temp_path = Path(temp_path)
         if self.temp_path.exists():
             raise Exception('[!] The temp path already exists')
-        self.external_module = Path(external_module)
+        self.external_modules = external_modules
         self.arch = arch
         self.artifactory_list = [] if artifactory_list is None else artifactory_list
         os.makedirs(str(self.temp_path), exist_ok=True)
@@ -57,9 +63,6 @@ class Stitch:
 
         artifactory = generate_artifactory(self.temp_path, self.artifactory_list)
 
-        print('[+] Preparing the smali...')
-        patcher.prepare_smali(self.temp_path, self.external_module, artifactory)
-
         smali_folders = [folder for folder in
                          (self.temp_path / EXTRACTED_PATH).iterdir() if
                          folder.is_dir() and (folder.name.startswith('smali_classes') or folder.name == 'smali')]
@@ -75,19 +78,28 @@ class Stitch:
                     shutil.move(file, target_folder)
                     break
         target_smali_folder = patcher.get_new_smali_folder(self.temp_path / EXTRACTED_PATH)
-        shutil.copytree(self.temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'smali',
-                        target_smali_folder,
-                        dirs_exist_ok=True)
-        print('[+] Injecting the custom so...')
-        os.makedirs(self.temp_path / EXTRACTED_PATH / 'lib' / self.arch, exist_ok=True)
 
-        shutil.copytree(
-            self.temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'lib' / self.arch,
-            self.temp_path / EXTRACTED_PATH / 'lib' / self.arch,
-            dirs_exist_ok=True)
+        for module in self.external_modules:
+            print('[+] Preparing the smali...')
+            patcher.prepare_smali(self.temp_path, module.module_path, artifactory)
+
+
+            shutil.copytree(self.temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'smali',
+                            target_smali_folder,
+                            dirs_exist_ok=True)
+            print('[+] Injecting the custom so...')
+            os.makedirs(self.temp_path / EXTRACTED_PATH / 'lib' / self.arch, exist_ok=True)
+
+            shutil.copytree(
+                self.temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'lib' / self.arch,
+                self.temp_path / EXTRACTED_PATH / 'lib' / self.arch,
+                dirs_exist_ok=True)
+            shutil.rmtree(self.temp_path / SMALI_GENERATOR_TEMP_PATH, ignore_errors=True)
+
+        invoke_lines = '\n\t'.join([module.invoke_line for module in self.external_modules])
 
         print('[+] Adding calls to the custom smali...')
-        patcher.patch_entries(self.apk_path, self.temp_path)
+        patcher.patch_entries(self.apk_path, self.temp_path, invoke_lines)
 
         if self.google_api_key is not None:
             print('[+] Patching google api key...')

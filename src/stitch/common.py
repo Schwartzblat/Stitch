@@ -1,3 +1,4 @@
+import dataclasses
 from pathlib import Path
 from importlib.resources import files
 import enum
@@ -20,3 +21,8 @@ class ManifestKeys(enum.StrEnum):
 
 
 ANDROID_MANIFEST_RELEVANT_TAGS = ['activity', 'activity-alias', 'provider', 'receiver', 'service']
+
+@dataclasses.dataclass
+class ExternalModule:
+    module_path: Path
+    invoke_line: str
