@@ -24,11 +24,12 @@ class Stitch:
     external_modules: List[ExternalModule]
     arch: str
     google_api_key: str
+    should_sign: bool
 
     def __init__(self, apk_path: str, output_apk: str = 'out.apk', temp_path: str = './temp',
                  external_modules: List[ExternalModule] = None,
                  arch: str = 'arm64-v8a', artifactory_list: List[SimpleArtifactoryFinder] = None,
-                 google_api_key: str = None):
+                 google_api_key: str = None, should_sign=True):
         if external_modules is None:
             external_modules = [ExternalModule(
                 Path('./smali_generator'),
@@ -44,6 +45,7 @@ class Stitch:
         self.artifactory_list = [] if artifactory_list is None else artifactory_list
         os.makedirs(str(self.temp_path), exist_ok=True)
         self.google_api_key = google_api_key
+        self.should_sign = should_sign
 
     def prepare_artifactory(self):
         if self.artifactory.exists():
@@ -83,7 +85,6 @@ class Stitch:
             print('[+] Preparing the smali...')
             patcher.prepare_smali(self.temp_path, module.module_path, artifactory)
 
-
             shutil.copytree(self.temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'smali',
                             target_smali_folder,
                             dirs_exist_ok=True)
@@ -115,8 +116,20 @@ class Stitch:
         print('[+] Compiling APK...')
         compile_apk(self.temp_path / EXTRACTED_PATH, temp_output_apk)
 
-        print('[+] Signing APK...')
-        sign_apk(self.temp_path, self.apk_path, temp_output_apk, self.output_apk)
+        if self.should_sign:
+            print('[+] Signing APK...')
+            sign_apk(self.temp_path, self.apk_path, temp_output_apk, self.output_apk)
+
+        if is_bundle(self.apk_path):
+            from stitch.apk_utils import main_apk_name
+            shutil.move(temp_output_apk, self.temp_path / BUNDLE_APK_EXTRACTED_PATH / main_apk_name)
+            shutil.move(self.temp_path / BUNDLE_APK_EXTRACTED_PATH, 'output_bundle_apks')
+            temp_output_path = shutil.make_archive(str(self.temp_path / 'temp_output'), 'zip', 'output_bundle_apks')
+            shutil.move(temp_output_path, self.output_apk)
+            shutil.rmtree('output_bundle_apks', ignore_errors=True)
+        else:
+            if self.should_sign:
+                shutil.move(temp_output_apk, self.output_apk)
 
     def __enter__(self):
         return self

@@ -105,13 +105,6 @@ def sign_apk(temp_path: Path, original_apk_path: Path, apk_path: Path, output_pa
         else:
             os.rename(f'{str(apk_path).removesuffix(".apk")}-aligned-signed.apk', output_path)
 
-    if is_bundle(original_apk_path):
-        shutil.move(apk_path, temp_path / BUNDLE_APK_EXTRACTED_PATH / main_apk_name)
-        shutil.move(temp_path / BUNDLE_APK_EXTRACTED_PATH, 'output_bundle_apks')
-        temp_output_path = shutil.make_archive(str(temp_path / 'temp_output'), 'zip', 'output_bundle_apks')
-        shutil.move(temp_output_path, output_path)
-        shutil.rmtree('output_bundle_apks', ignore_errors=True)
-
 
 def _recursive_search_class(parent: Path, class_path: list) -> typing.Optional[Path]:
     for child in parent.iterdir():
