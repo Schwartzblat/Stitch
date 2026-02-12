@@ -25,11 +25,12 @@ class Stitch:
     arch: str
     google_api_key: str
     should_sign: bool
+    extra_artifacts: dict
 
     def __init__(self, apk_path: str, output_apk: str = 'out.apk', temp_path: str = './temp',
                  external_modules: List[ExternalModule] = None,
                  arch: str = 'arm64-v8a', artifactory_list: List[SimpleArtifactoryFinder] = None,
-                 google_api_key: str = None, should_sign=True):
+                 google_api_key: str = None, should_sign=True, extra_artifacts: dict = None):
         if external_modules is None:
             external_modules = [ExternalModule(
                 Path('./smali_generator'),
@@ -46,6 +47,9 @@ class Stitch:
         os.makedirs(str(self.temp_path), exist_ok=True)
         self.google_api_key = google_api_key
         self.should_sign = should_sign
+        if extra_artifacts is None:
+            extra_artifacts = {}
+        self.extra_artifacts = extra_artifacts
 
     def prepare_artifactory(self):
         if self.artifactory.exists():
@@ -64,6 +68,7 @@ class Stitch:
         apk_utils.extract_apk(self.apk_path, self.temp_path)
 
         artifactory = generate_artifactory(self.temp_path, self.artifactory_list)
+        artifactory.update(self.extra_artifacts)
 
         smali_folders = [folder for folder in
                          (self.temp_path / EXTRACTED_PATH).iterdir() if
