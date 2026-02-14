@@ -80,9 +80,9 @@ def compile_apk(input_path: Path, output_path: Path) -> None:
                 raise e
 
 
-def sign_apk(temp_path: Path, original_apk_path: Path, apk_path: Path, output_path: Path) -> None:
+def sign_apk(bundle_dir: Path, apk_path: Path, output_path: Path, is_bundle_file: bool) -> None:
     apk_files = [str(apk_path)]
-    for file in glob.glob(str(temp_path / BUNDLE_APK_EXTRACTED_PATH / '*.apk')):
+    for file in glob.glob(str(bundle_dir / '*.apk')):
         apk_files.append(str(file))
     for file in apk_files:
         args = ["java", "-jar", UBER_APK_SIGNER_PATH]
@@ -97,7 +97,7 @@ def sign_apk(temp_path: Path, original_apk_path: Path, apk_path: Path, output_pa
         args.extend(['--allowResign', '--apks', file])
         subprocess.check_call(args, timeout=20 * 60)
         os.remove(file)
-        if is_bundle(original_apk_path):
+        if is_bundle_file:
             os.rename(
                 f'{file.removesuffix(".apk")}-aligned-signed.apk',
                 f'{file.removesuffix(".apk")}.apk',

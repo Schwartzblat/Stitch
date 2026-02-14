@@ -50,6 +50,7 @@ class Stitch:
         if extra_artifacts is None:
             extra_artifacts = {}
         self.extra_artifacts = extra_artifacts
+        self.is_bundle_file = is_bundle(self.apk_path)
 
     def prepare_artifactory(self):
         if self.artifactory.exists():
@@ -93,13 +94,13 @@ class Stitch:
             shutil.copytree(self.temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'smali',
                             target_smali_folder,
                             dirs_exist_ok=True)
-            print('[+] Injecting the custom so...')
-            os.makedirs(self.temp_path / EXTRACTED_PATH / 'lib' / self.arch, exist_ok=True)
-
-            shutil.copytree(
-                self.temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'lib' / self.arch,
-                self.temp_path / EXTRACTED_PATH / 'lib' / self.arch,
-                dirs_exist_ok=True)
+            if (self.temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'lib' / self.arch).exists():
+                print('[+] Injecting the custom so...')
+                os.makedirs(self.temp_path / EXTRACTED_PATH / 'lib' / self.arch, exist_ok=True)
+                shutil.copytree(
+                    self.temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'lib' / self.arch,
+                    self.temp_path / EXTRACTED_PATH / 'lib' / self.arch,
+                    dirs_exist_ok=True)
             shutil.rmtree(self.temp_path / SMALI_GENERATOR_TEMP_PATH, ignore_errors=True)
 
         invoke_lines = '\n\t'.join([module.invoke_line for module in self.external_modules])
@@ -109,7 +110,7 @@ class Stitch:
 
         if self.google_api_key is not None:
             print('[+] Patching google api key...')
-            if is_bundle(self.apk_path):
+            if self.is_bundle_file:
                 from stitch.apk_utils import main_apk_name
                 package_name = APK(str(self.temp_path / BUNDLE_APK_EXTRACTED_PATH / main_apk_name)).get_package()
             else:
@@ -123,9 +124,9 @@ class Stitch:
 
         if self.should_sign:
             print('[+] Signing APK...')
-            sign_apk(self.temp_path, self.apk_path, temp_output_apk, self.output_apk)
+            sign_apk(self.temp_path / BUNDLE_APK_EXTRACTED_PATH, temp_output_apk, self.output_apk, self.is_bundle_file)
 
-        if is_bundle(self.apk_path):
+        if self.is_bundle_file:
             from stitch.apk_utils import main_apk_name
             shutil.move(temp_output_apk, self.temp_path / BUNDLE_APK_EXTRACTED_PATH / main_apk_name)
             shutil.move(self.temp_path / BUNDLE_APK_EXTRACTED_PATH, 'output_bundle_apks')
