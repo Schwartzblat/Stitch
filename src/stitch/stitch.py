@@ -134,7 +134,7 @@ class Stitch:
             shutil.move(temp_output_path, self.output_apk)
             shutil.rmtree('output_bundle_apks', ignore_errors=True)
         else:
-            if self.should_sign:
+            if not self.should_sign:
                 shutil.move(temp_output_apk, self.output_apk)
 
     def __enter__(self):
