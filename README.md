@@ -6,7 +6,9 @@ Stitch is a powerful APK patching python library that allows you to inject your 
 Will be added soon.
 
 ## Projects using Stitch:
-- [MakoPatcher][https://github.com/Schwartzblat/MakoPatcher]- A patcher for 12+ app.
+- [WhatsAppPatcher](https://github.com/Schwartzblat/WhatsAppPatcher)- A patcher for WhatsApp Android app.
+- [MoovitPatcher](https://github.com/Schwartzblat/MoovitPatcher)- A patcher for Moovit app.
+- [MakoPatcher](https://github.com/Schwartzblat/MakoPatcher)- A patcher for 12+ app.
 
 ## How to use
 ### Installation
@@ -22,12 +24,14 @@ Create an Android Gradle project like my smali_generator (Check it out in on of 
 Then, use the following code to patch an APK:
 ```python
 from stitch import Stitch
+from stitch.common import ExternalModule
+from pathlib import Path
 
 with Stitch(
         apk_path='./input.apk',
         output_apk='./output.apk',
-        temp_path='./temp',
-        external_module='./smali_generator'
+        external_modules=[ExternalModule(Path(__file__).parent / './smali_generator',
+                                         'invoke-static {}, Lcom/smali_generator/TheAmazingPatch;->on_load()V')]
 ) as stitch:
     stitch.patch()
 ```
