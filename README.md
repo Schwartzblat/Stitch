@@ -13,7 +13,7 @@ Will be added soon.
 You can install Stitch using pip:
 ```bash
 # For now, install the test version from TestPyPI
-pip install --index-url https://test.pypi.org/simple/ stitch-test
+pip install stitch
 ```
 
 ### Basic Usage

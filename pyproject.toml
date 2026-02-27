@@ -1,5 +1,5 @@
 [project]
-name = "stitch-test"
+name = "stitch"
 version = "0.0.21"
 description = ""
 authors = [
