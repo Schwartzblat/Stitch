@@ -1,6 +1,6 @@
 [project]
 name = "stitch"
-version = "0.0.21"
+version = "1.0.0"
 description = ""
 authors = [
     { name = "Alon Schwartzblat", email = "alon.ponch@gmail.com" },
