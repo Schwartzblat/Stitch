@@ -9,7 +9,7 @@ import yaml
 from stitch.common import APKTOOL_PATH, UBER_APK_SIGNER_PATH, EXTRACTED_PATH, BUNDLE_APK_EXTRACTED_PATH, BUNDLE_DIR_PATH
 
 main_apk_name = 'base.apk'
-
+APK_SUFFIX = '-aligned-debugSigned.apk' if os.environ.get('KEYSTORE_PATH') is None else '-aligned-signed.apk'
 
 def is_bundle(path: os.PathLike) -> bool:
     with zipfile.ZipFile(path, 'r') as zip_file:
@@ -99,11 +99,11 @@ def sign_apk(bundle_dir: Path, apk_path: Path, output_path: Path, is_bundle_file
         os.remove(file)
         if is_bundle_file:
             os.rename(
-                f'{file.removesuffix(".apk")}-aligned-signed.apk',
+                f'{file.removesuffix(".apk")}{APK_SUFFIX}',
                 f'{file.removesuffix(".apk")}.apk',
             )
         else:
-            os.rename(f'{str(apk_path).removesuffix(".apk")}-aligned-signed.apk', output_path)
+            os.rename(f'{str(apk_path).removesuffix(".apk")}{APK_SUFFIX}', output_path)
 
 
 def _recursive_search_class(parent: Path, class_path: list) -> typing.Optional[Path]:
