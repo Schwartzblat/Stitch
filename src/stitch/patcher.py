@@ -4,16 +4,17 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-from typing import Optional
+import zipfile
+from typing import Optional, List
 
 import lxml.etree
 from androguard.core.apk import APK
 from androguard.util import set_log
 from androguard.core.axml import ARSCParser
-from stitch.apk_utils import find_smali_file_by_class_name, extract_apk, is_bundle
+from pyaxml import AXML
+from stitch.apk_utils import find_smali_file_by_class_name
 from stitch.common import ManifestKeys, SMALI_GENERATOR_TEMP_PATH, SMALI_GENERATOR_OUTPUT_PATH, \
-    SMALI_EXTRACTED_PATH, \
-    BUNDLE_APK_EXTRACTED_PATH, EXTRACTED_PATH
+    EXTRACTED_PATH
 
 set_log('CRITICAL')
 INVOKE_LINE = '\n\tinvoke-static {}, Lcom/smali_generator/TheAmazingPatch;->on_load()V\n\t'
@@ -33,7 +34,7 @@ def patch_artifacts(artifactory: dict, smali_generator_temp_path: Path) -> None:
                 f.write(data)
 
 
-def prepare_smali(temp_path: Path, external_module: Path, artifactory: dict) -> None:
+def prepare_smali(temp_path: Path, external_module: Path, artifactory: dict) -> Path:
     smali_generator_temp_path = temp_path / SMALI_GENERATOR_TEMP_PATH
     print('[+] Copying the smali generator...')
     shutil.copytree(external_module, smali_generator_temp_path)
@@ -41,9 +42,59 @@ def prepare_smali(temp_path: Path, external_module: Path, artifactory: dict) -> 
     patch_artifacts(artifactory, smali_generator_temp_path)
     print('[+] Assembling the java...')
     subprocess.check_call(['./gradlew', 'assembleRelease'], cwd=smali_generator_temp_path)
-    print('[+] Extracting the smali...')
-    extract_apk(smali_generator_temp_path / SMALI_GENERATOR_OUTPUT_PATH, temp_path,
-                smali_generator_temp_path / SMALI_EXTRACTED_PATH)
+    return smali_generator_temp_path / SMALI_GENERATOR_OUTPUT_PATH
+
+
+def _dex_index(name: str) -> Optional[int]:
+    m = re.fullmatch(r'classes(?:(\d+))?\.dex', name)
+    if not m:
+        return None
+    return int(m.group(1)) if m.group(1) else 1
+
+
+def _dex_name(index: int) -> str:
+    return 'classes.dex' if index == 1 else f'classes{index}.dex'
+
+
+def inject_dex_and_libs(target_apk: Path, generator_apk: Path, arch: str) -> None:
+    with zipfile.ZipFile(generator_apk, 'r') as zin:
+        gen_names = zin.namelist()
+        gen_dex = sorted(
+            (n for n in gen_names if _dex_index(n) is not None),
+            key=lambda n: _dex_index(n) or 0,
+        )
+        gen_dex_data = [(n, zin.read(n)) for n in gen_dex]
+        lib_prefix = f'lib/{arch}/'
+        gen_libs = [(n, zin.read(n)) for n in gen_names if n.startswith(lib_prefix) and not n.endswith('/')]
+    if not gen_dex_data and not gen_libs:
+        print('[-] No dex or lib files found in generator apk, skipping inject')
+        return
+    with zipfile.ZipFile(target_apk, 'r') as zin:
+        target_names = zin.namelist()
+        target_data = [(item, zin.read(item.filename)) for item in zin.infolist() if not item.is_dir()]
+        target_info = {item.filename: item for item in zin.infolist()}
+    max_dex = 0
+    for name in target_names:
+        idx = _dex_index(name)
+        if idx is not None:
+            max_dex = max(max_dex, idx)
+    additions: dict = {}
+    next_index = max_dex + 1
+    for _, data in gen_dex_data:
+        additions[_dex_name(next_index)] = (data, zipfile.ZIP_DEFLATED)
+        next_index += 1
+    for name, data in gen_libs:
+        additions[name] = (data, zipfile.ZIP_STORED)
+    print(f'[+] Injecting {len(gen_dex_data)} dex file(s) and {len(gen_libs)} lib file(s) into {target_apk.name}...')
+    tmp_path = target_apk.with_suffix(target_apk.suffix + '.tmp')
+    with zipfile.ZipFile(tmp_path, 'w') as zout:
+        for item, data in target_data:
+            if item.filename in additions:
+                continue
+            zout.writestr(item.filename, data, compress_type=item.compress_type)
+        for name, (data, compress) in additions.items():
+            zout.writestr(name, data, compress_type=compress)
+    os.replace(tmp_path, target_apk)
 
 
 def get_activities_with_entry_points(apk_path: Path) -> list:
@@ -80,18 +131,39 @@ def add_static_call_to_on_load(temp_path: Path, class_name: str, function_name: 
     patch_or_add_function(smali_file_path, function_name, invoke_line)
 
 
-def patch_entries(apk_path: Path, temp_path: Path, invoke_line: str) -> None:
-    from stitch.apk_utils import main_apk_name
-    print('[+] Searching for activities with entry points...')
-    activities_to_patch = get_activities_with_entry_points(
-        Path(temp_path) / BUNDLE_APK_EXTRACTED_PATH / main_apk_name if is_bundle(
-            apk_path) else apk_path)
-    print(f'[+] Found {len(activities_to_patch)} activities with entry points')
-    for activity in activities_to_patch:
-        add_static_call_to_on_load(temp_path, activity.get(
-            ManifestKeys.TARGET_ACTIVITY if activity.tag == 'activity-alias' else ManifestKeys.NAME),
-            'onCreate' if 'activity' in activity.tag else '<init>', invoke_line)
+def _add_providers(manifest: lxml.etree.Element, manifest_path: Path, providers: List[str]) -> None:
+    application = manifest.find('application')
+    if application is None:
+        application = manifest.find('.//application')
+    if application is None:
+        raise ValueError(f'No <application> tag found in {manifest_path}')
+    for provider_name in providers:
+        provider = lxml.etree.SubElement(application, 'provider')
+        provider.set(ManifestKeys.NAME, provider_name)
+        provider.set(ManifestKeys.EXPORTED, 'false')
+        provider.set(ManifestKeys.AUTHORITIES, provider_name)
+        provider.set(ManifestKeys.INIT_ORDER, '2147483647')
 
+
+def patch_manifest(temp_path: Path, providers: List[str]) -> None:
+    manifest_path = temp_path / EXTRACTED_PATH / 'AndroidManifest.xml'
+    raw = manifest_path.read_bytes()
+    try:
+        axml, _ = AXML.from_axml(raw)
+    except ValueError:
+        parser = lxml.etree.XMLParser(remove_blank_text=False)
+        tree = lxml.etree.parse(str(manifest_path), parser)
+        manifest = tree.getroot()
+        _add_providers(manifest, manifest_path, providers)
+        tree.write(str(manifest_path), encoding='utf-8', xml_declaration=True)
+        return
+
+    manifest = axml.to_xml()
+    _add_providers(manifest, manifest_path, providers)
+
+    axml.from_xml(manifest)
+    axml.compute()
+    manifest_path.write_bytes(axml.pack())
 
 def patch_google_api_key(temp_path: Path, package_name: str, custom_google_api_key: str) -> None:
     print('[+] Searching for google api key...')
@@ -116,43 +188,3 @@ def get_new_smali_folder(smali_path: Path) -> Path:
     (smali_path / f'smali_classes{smali_index}').mkdir()
     return smali_path / f'smali_classes{smali_index}'
 
-
-def patch_apk(apk_path: Path, temp_path: Path, external_module: Path, artifactory: dict, arch: str,
-              api_key: Optional[str] = None) -> None:
-    print('[+] Preparing the smali...')
-    prepare_smali(temp_path, external_module, artifactory)
-
-    new_smali_folder = get_new_smali_folder(temp_path / EXTRACTED_PATH)
-
-    print(f'[+] Applying the custom smali into {new_smali_folder.name}...')
-    shutil.copytree(temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'smali',
-                    new_smali_folder,
-                    dirs_exist_ok=True)
-
-    smali_folders = [folder for folder in
-                     (temp_path / EXTRACTED_PATH).iterdir() if
-                     folder.is_dir() and (folder.name.startswith('smali_classes') or folder.name == 'smali')]
-    for folder in smali_folders:
-        # move every first folder within to the new smali folder
-        for file in folder.iterdir():
-            if not (new_smali_folder / file.name).exists():
-                shutil.move(file, new_smali_folder)
-                break
-
-    print('[+] Injecting the custom so...')
-    os.makedirs(temp_path / EXTRACTED_PATH / 'lib' / arch, exist_ok=True)
-    shutil.copytree(
-        temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'lib' / arch,
-        temp_path / EXTRACTED_PATH / 'lib' / arch,
-        dirs_exist_ok=True)
-    print('[+] Adding calls to the custom smali...')
-    patch_entries(apk_path, temp_path)
-
-    if api_key is not None:
-        print('[+] Patching google api key...')
-        if is_bundle(apk_path):
-            from stitch.apk_utils import main_apk_name
-            package_name = APK(str(temp_path / BUNDLE_APK_EXTRACTED_PATH / main_apk_name)).get_package()
-        else:
-            package_name = APK(str(apk_path)).get_package()
-        patch_google_api_key(temp_path, package_name, api_key)

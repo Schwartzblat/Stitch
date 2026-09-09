@@ -11,7 +11,7 @@ from stitch.common import BUNDLE_APK_EXTRACTED_PATH
 
 from .apk_utils import compile_apk, sign_apk
 from .artifactory_generator.generate_artifactory import generate_artifactory
-from .common import SMALI_EXTRACTED_PATH, SMALI_GENERATOR_TEMP_PATH, EXTRACTED_PATH, ExternalModule
+from .common import SMALI_GENERATOR_TEMP_PATH, EXTRACTED_PATH, ExternalModule
 from . import apk_utils
 from . import patcher
 
@@ -34,7 +34,7 @@ class Stitch:
         if external_modules is None:
             external_modules = [ExternalModule(
                 Path('./smali_generator'),
-                'invoke-static {}, Lcom/smali_generator/TheAmazingPatch;->on_load()V'
+                'com.smali_generator.InitProvider'
             )]
         self.apk_path = Path(apk_path)
         self.output_apk = Path(output_apk)
@@ -71,42 +71,17 @@ class Stitch:
         artifactory = generate_artifactory(self.temp_path, self.artifactory_list)
         artifactory.update(self.extra_artifacts)
 
-        smali_folders = [folder for folder in
-                         (self.temp_path / EXTRACTED_PATH).iterdir() if
-                         folder.is_dir() and (folder.name.startswith('smali_classes') or folder.name == 'smali')]
-        new_smali_folders = [patcher.get_new_smali_folder(self.temp_path / EXTRACTED_PATH) for _ in
-                             range(len(smali_folders))]
-        print(f'[+] Applying the custom smali into {new_smali_folders[0].name}...')
-
-        for i, folder in enumerate(smali_folders):
-            # move every first folder within to the new smali folder
-            for file in folder.iterdir():
-                target_folder = new_smali_folders[i % len(new_smali_folders)]
-                if not (target_folder / file.name).exists():
-                    shutil.move(file, target_folder)
-                    break
-        target_smali_folder = patcher.get_new_smali_folder(self.temp_path / EXTRACTED_PATH)
-
-        for module in self.external_modules:
+        generator_apks = []
+        for i, module in enumerate(self.external_modules):
             print('[+] Preparing the smali...')
-            patcher.prepare_smali(self.temp_path, module.module_path, artifactory)
-
-            shutil.copytree(self.temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'smali',
-                            target_smali_folder,
-                            dirs_exist_ok=True)
-            if (self.temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'lib' / self.arch).exists():
-                print('[+] Injecting the custom so...')
-                os.makedirs(self.temp_path / EXTRACTED_PATH / 'lib' / self.arch, exist_ok=True)
-                shutil.copytree(
-                    self.temp_path / SMALI_GENERATOR_TEMP_PATH / SMALI_EXTRACTED_PATH / 'lib' / self.arch,
-                    self.temp_path / EXTRACTED_PATH / 'lib' / self.arch,
-                    dirs_exist_ok=True)
+            built_apk = patcher.prepare_smali(self.temp_path, module.module_path, artifactory)
+            saved_apk = self.temp_path / f'generator-{i}.apk'
+            shutil.copy(built_apk, saved_apk)
+            generator_apks.append(saved_apk)
             shutil.rmtree(self.temp_path / SMALI_GENERATOR_TEMP_PATH, ignore_errors=True)
 
-        invoke_lines = '\n\t'.join([module.invoke_line for module in self.external_modules])
-
         print('[+] Adding calls to the custom smali...')
-        patcher.patch_entries(self.apk_path, self.temp_path, invoke_lines)
+        patcher.patch_manifest(self.temp_path, [module.invoke_line for module in self.external_modules])
 
         if self.google_api_key is not None:
             print('[+] Patching google api key...')
@@ -121,6 +96,10 @@ class Stitch:
 
         print('[+] Compiling APK...')
         compile_apk(self.temp_path / EXTRACTED_PATH, temp_output_apk)
+
+        print('[+] Injecting dex and libs...')
+        for generator_apk in generator_apks:
+            patcher.inject_dex_and_libs(temp_output_apk, generator_apk, self.arch)
 
         if self.should_sign:
             print('[+] Signing APK...')

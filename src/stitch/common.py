@@ -17,7 +17,9 @@ ARTIFACTORY_PATH = Path('artifactory.json')
 class ManifestKeys(enum.StrEnum):
     EXPORTED = '{http://schemas.android.com/apk/res/android}exported'
     NAME = '{http://schemas.android.com/apk/res/android}name'
+    AUTHORITIES = '{http://schemas.android.com/apk/res/android}authorities'
     TARGET_ACTIVITY = '{http://schemas.android.com/apk/res/android}targetActivity'
+    INIT_ORDER = "{http://schemas.android.com/apk/res/android}initOrder"
 
 
 ANDROID_MANIFEST_RELEVANT_TAGS = ['activity', 'activity-alias', 'provider', 'receiver', 'service']
