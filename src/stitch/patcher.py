@@ -5,19 +5,21 @@ import re
 import shutil
 import subprocess
 import zipfile
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 import lxml.etree
 from androguard.core.apk import APK
 from androguard.util import set_log
 from androguard.core.axml import ARSCParser
 from pyaxml import AXML
+from stitch import manifest_merger, module_resources
 from stitch.apk_utils import find_smali_file_by_class_name
 from stitch.common import ManifestKeys, SMALI_GENERATOR_TEMP_PATH, SMALI_GENERATOR_OUTPUT_PATH, \
     EXTRACTED_PATH
 
 set_log('CRITICAL')
 INVOKE_LINE = '\n\tinvoke-static {}, Lcom/smali_generator/TheAmazingPatch;->on_load()V\n\t'
+ASSETS_PREFIX = 'assets/'
 
 
 def patch_artifacts(artifactory: dict, smali_generator_temp_path: Path) -> None:
@@ -56,7 +58,19 @@ def _dex_name(index: int) -> str:
     return 'classes.dex' if index == 1 else f'classes{index}.dex'
 
 
-def inject_dex_and_libs(target_apk: Path, generator_apk: Path, arch: str) -> None:
+def _resource_asset(generator_apk: Path) -> Optional[Tuple[str, bytes]]:
+    """The module's resource table, packaged so it can be loaded at runtime from inside the patched APK."""
+    data = module_resources.build_resource_only_apk(generator_apk)
+    if data is None:
+        return None
+    package = manifest_merger.read_package(generator_apk)
+    if not package:
+        print('[-] Module manifest has no package attribute, skipping resource injection')
+        return None
+    return module_resources.asset_path(package), data
+
+
+def inject_module_files(target_apk: Path, generator_apk: Path, arch: str, inject_resources: bool = True) -> None:
     with zipfile.ZipFile(generator_apk, 'r') as zin:
         gen_names = zin.namelist()
         gen_dex = sorted(
@@ -66,13 +80,14 @@ def inject_dex_and_libs(target_apk: Path, generator_apk: Path, arch: str) -> Non
         gen_dex_data = [(n, zin.read(n)) for n in gen_dex]
         lib_prefix = f'lib/{arch}/'
         gen_libs = [(n, zin.read(n)) for n in gen_names if n.startswith(lib_prefix) and not n.endswith('/')]
-    if not gen_dex_data and not gen_libs:
-        print('[-] No dex or lib files found in generator apk, skipping inject')
+        gen_assets = [(item.filename, zin.read(item.filename), item.compress_type) for item in zin.infolist()
+                      if item.filename.startswith(ASSETS_PREFIX) and not item.is_dir()]
+    if not gen_dex_data and not gen_libs and not gen_assets:
+        print('[-] No dex, lib or asset files found in generator apk, skipping inject')
         return
     with zipfile.ZipFile(target_apk, 'r') as zin:
         target_names = zin.namelist()
         target_data = [(item, zin.read(item.filename)) for item in zin.infolist() if not item.is_dir()]
-        target_info = {item.filename: item for item in zin.infolist()}
     max_dex = 0
     for name in target_names:
         idx = _dex_index(name)
@@ -85,7 +100,17 @@ def inject_dex_and_libs(target_apk: Path, generator_apk: Path, arch: str) -> Non
         next_index += 1
     for name, data in gen_libs:
         additions[name] = (data, zipfile.ZIP_STORED)
-    print(f'[+] Injecting {len(gen_dex_data)} dex file(s) and {len(gen_libs)} lib file(s) into {target_apk.name}...')
+    for name, data, compress_type in gen_assets:
+        if name in target_names:
+            print(f'[-] Replacing {name} with the module\'s copy')
+        additions[name] = (data, compress_type)
+    resource_asset = _resource_asset(generator_apk) if inject_resources else None
+    if resource_asset is not None:
+        name, data = resource_asset
+        print(f'[+] Injecting the module resource table as {name}...')
+        additions[name] = (data, zipfile.ZIP_STORED)
+    print(f'[+] Injecting {len(gen_dex_data)} dex file(s), {len(gen_libs)} lib file(s) and '
+          f'{len(gen_assets)} asset file(s) into {target_apk.name}...')
     tmp_path = target_apk.with_suffix(target_apk.suffix + '.tmp')
     with zipfile.ZipFile(tmp_path, 'w') as zout:
         for item, data in target_data:
@@ -131,35 +156,49 @@ def add_static_call_to_on_load(temp_path: Path, class_name: str, function_name: 
     patch_or_add_function(smali_file_path, function_name, invoke_line)
 
 
-def _add_providers(manifest: lxml.etree.Element, manifest_path: Path, providers: List[str]) -> None:
-    application = manifest.find('application')
-    if application is None:
-        application = manifest.find('.//application')
-    if application is None:
-        raise ValueError(f'No <application> tag found in {manifest_path}')
+def _provider_authority(host_package: Optional[str], provider_name: str) -> str:
+    """Authorities are unique device-wide, so scope them to the app being patched."""
+    if not host_package:
+        print(f'[-] Host manifest has no package attribute, leaving {provider_name} as its own authority')
+        return provider_name
+    return f'{host_package}.{provider_name}'
+
+
+def _add_providers(manifest: lxml.etree.Element, providers: List[str]) -> None:
+    application = manifest_merger.find_application(manifest)
+    host_package = manifest.get('package')
     for provider_name in providers:
         provider = lxml.etree.SubElement(application, 'provider')
         provider.set(ManifestKeys.NAME, provider_name)
         provider.set(ManifestKeys.EXPORTED, 'false')
-        provider.set(ManifestKeys.AUTHORITIES, provider_name)
+        provider.set(ManifestKeys.AUTHORITIES, _provider_authority(host_package, provider_name))
         provider.set(ManifestKeys.INIT_ORDER, '2147483647')
 
 
-def patch_manifest(temp_path: Path, providers: List[str]) -> None:
+def _merge_module_manifests(manifest: lxml.etree.Element, module_apks: List[Path]) -> None:
+    for module_apk in module_apks:
+        print(f'[+] Merging the manifest of {Path(module_apk).name}...')
+        manifest_merger.merge_components(manifest, manifest_merger.collect_components(module_apk))
+
+
+def patch_manifest(temp_path: Path, providers: List[str], module_apks: Optional[List[Path]] = None) -> None:
     manifest_path = temp_path / EXTRACTED_PATH / 'AndroidManifest.xml'
     raw = manifest_path.read_bytes()
+    module_apks = [] if module_apks is None else module_apks
     try:
         axml, _ = AXML.from_axml(raw)
     except ValueError:
         parser = lxml.etree.XMLParser(remove_blank_text=False)
         tree = lxml.etree.parse(str(manifest_path), parser)
         manifest = tree.getroot()
-        _add_providers(manifest, manifest_path, providers)
+        _add_providers(manifest, providers)
+        _merge_module_manifests(manifest, module_apks)
         tree.write(str(manifest_path), encoding='utf-8', xml_declaration=True)
         return
 
     manifest = axml.to_xml()
-    _add_providers(manifest, manifest_path, providers)
+    _add_providers(manifest, providers)
+    _merge_module_manifests(manifest, module_apks)
 
     axml.from_xml(manifest)
     axml.compute()

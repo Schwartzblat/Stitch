@@ -23,6 +23,7 @@ class ManifestKeys(enum.StrEnum):
 
 
 ANDROID_MANIFEST_RELEVANT_TAGS = ['activity', 'activity-alias', 'provider', 'receiver', 'service']
+ANDROID_MANIFEST_ROOT_TAGS = ['uses-permission', 'uses-permission-sdk-23', 'uses-feature', 'queries']
 
 @dataclasses.dataclass
 class ExternalModule:

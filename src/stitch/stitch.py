@@ -26,11 +26,14 @@ class Stitch:
     google_api_key: str
     should_sign: bool
     extra_artifacts: dict
+    merge_module_manifests: bool
+    inject_module_resources: bool
 
     def __init__(self, apk_path: str, output_apk: str = 'out.apk', temp_path: str = './temp',
                  external_modules: List[ExternalModule] = None,
                  arch: str = 'arm64-v8a', artifactory_list: List[SimpleArtifactoryFinder] = None,
-                 google_api_key: str = None, should_sign=True, extra_artifacts: dict = None):
+                 google_api_key: str = None, should_sign=True, extra_artifacts: dict = None,
+                 merge_module_manifests: bool = True, inject_module_resources: bool = True):
         if external_modules is None:
             external_modules = [ExternalModule(
                 Path('./smali_generator'),
@@ -50,6 +53,8 @@ class Stitch:
         if extra_artifacts is None:
             extra_artifacts = {}
         self.extra_artifacts = extra_artifacts
+        self.merge_module_manifests = merge_module_manifests
+        self.inject_module_resources = inject_module_resources
         self.is_bundle_file = is_bundle(self.apk_path)
 
     def prepare_artifactory(self):
@@ -80,8 +85,12 @@ class Stitch:
             generator_apks.append(saved_apk)
             shutil.rmtree(self.temp_path / SMALI_GENERATOR_TEMP_PATH, ignore_errors=True)
 
-        print('[+] Adding calls to the custom smali...')
-        patcher.patch_manifest(self.temp_path, [module.invoke_line for module in self.external_modules])
+        print('[+] Patching the manifest...')
+        patcher.patch_manifest(
+            self.temp_path,
+            [module.invoke_line for module in self.external_modules],
+            generator_apks if self.merge_module_manifests else [],
+        )
 
         if self.google_api_key is not None:
             print('[+] Patching google api key...')
@@ -97,9 +106,10 @@ class Stitch:
         print('[+] Compiling APK...')
         compile_apk(self.temp_path / EXTRACTED_PATH, temp_output_apk)
 
-        print('[+] Injecting dex and libs...')
+        print('[+] Injecting module files...')
         for generator_apk in generator_apks:
-            patcher.inject_dex_and_libs(temp_output_apk, generator_apk, self.arch)
+            patcher.inject_module_files(temp_output_apk, generator_apk, self.arch,
+                                        inject_resources=self.inject_module_resources)
 
         if self.should_sign:
             print('[+] Signing APK...')
