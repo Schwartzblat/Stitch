@@ -6,10 +6,9 @@ import subprocess
 import typing
 import zipfile
 import yaml
-from stitch.common import APKTOOL_PATH, UBER_APK_SIGNER_PATH, EXTRACTED_PATH, BUNDLE_APK_EXTRACTED_PATH, BUNDLE_DIR_PATH
+from stitch.common import APKTOOL_PATH, FASTSIGNER_PATH, DEBUG_KEY_PATH, DEBUG_CERT_PATH, EXTRACTED_PATH, BUNDLE_APK_EXTRACTED_PATH, BUNDLE_DIR_PATH
 
 main_apk_name = 'base.apk'
-APK_SUFFIX = '-aligned-debugSigned.apk' if os.environ.get('KEYSTORE_PATH') is None else '-aligned-signed.apk'
 
 def is_bundle(path: os.PathLike) -> bool:
     with zipfile.ZipFile(path, 'r') as zip_file:
@@ -80,30 +79,27 @@ def compile_apk(input_path: Path, output_path: Path) -> None:
                 raise e
 
 
+def _key_args() -> typing.List[str]:
+    keystore = os.environ.get('KEYSTORE_PATH')
+    if keystore is None:
+        return ["--key", str(DEBUG_KEY_PATH), "--cert", str(DEBUG_CERT_PATH)]
+    args = ["--ks", keystore]
+    if os.environ.get('KEY_ALIAS') is not None:
+        args.extend(["--ks-key-alias", os.environ['KEY_ALIAS']])
+    if os.environ.get('KEYSTORE_PASSWORD') is not None:
+        args.extend(["--ks-pass", f"pass:{os.environ['KEYSTORE_PASSWORD']}"])
+    if os.environ.get('KEY_PASSWORD') is not None:
+        args.extend(["--key-pass", f"pass:{os.environ['KEY_PASSWORD']}"])
+    return args
+
+
 def sign_apk(bundle_dir: Path, apk_path: Path, output_path: Path, is_bundle_file: bool) -> None:
-    apk_files = [str(apk_path)]
-    for file in glob.glob(str(bundle_dir / '*.apk')):
-        apk_files.append(str(file))
-    for file in apk_files:
-        args = ["java", "-jar", UBER_APK_SIGNER_PATH]
-        if os.environ.get('KEYSTORE_PATH') is not None:
-            args.extend(["--ks", os.environ['KEYSTORE_PATH']])
-        if os.environ.get('KEY_ALIAS') is not None:
-            args.extend(["--ksAlias", os.environ['KEY_ALIAS']])
-        if os.environ.get('KEYSTORE_PASSWORD') is not None:
-            args.extend(["--ksPass", os.environ['KEYSTORE_PASSWORD']])
-        if os.environ.get('KEY_PASSWORD') is not None:
-            args.extend(["--ksKeyPass", os.environ['KEY_PASSWORD']])
-        args.extend(['--allowResign', '--apks', file])
-        subprocess.check_call(args, timeout=20 * 60)
-        os.remove(file)
-        if is_bundle_file:
-            os.rename(
-                f'{file.removesuffix(".apk")}{APK_SUFFIX}',
-                f'{file.removesuffix(".apk")}.apk',
-            )
-        else:
-            os.rename(f'{str(apk_path).removesuffix(".apk")}{APK_SUFFIX}', output_path)
+    args = [str(FASTSIGNER_PATH), *_key_args()]
+    if is_bundle_file:
+        args.extend([str(apk_path), *glob.glob(str(bundle_dir / '*.apk'))])
+    else:
+        args.extend(["--out", str(output_path), str(apk_path)])
+    subprocess.check_call(args, timeout=20 * 60)
 
 
 def _recursive_search_class(parent: Path, class_path: list) -> typing.Optional[Path]:

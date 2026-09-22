@@ -4,7 +4,9 @@ from importlib.resources import files
 import enum
 
 APKTOOL_PATH = files('stitch').joinpath('bin/apktool_3.0.2.jar')
-UBER_APK_SIGNER_PATH = files('stitch').joinpath('./bin/uber-apk-signer-1.2.1.jar')
+FASTSIGNER_PATH = files('stitch').joinpath('bin/fastsigner')
+DEBUG_KEY_PATH = files('stitch').joinpath('bin/debug.pk8')
+DEBUG_CERT_PATH = files('stitch').joinpath('bin/debug.pem')
 EXTRACTED_PATH = 'extracted'
 BUNDLE_DIR_PATH = 'bundle_apks'
 BUNDLE_APK_EXTRACTED_PATH = Path('bundle')
