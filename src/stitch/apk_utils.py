@@ -11,11 +11,17 @@ from stitch.common import APKTOOL_PATH, FASTSIGNER_PATH, DEBUG_KEY_PATH, DEBUG_C
 main_apk_name = 'base.apk'
 
 def is_bundle(path: os.PathLike) -> bool:
+    """Only top-level .apk entries make a bundle: an XAPK keeps its splits at the root of the zip.
+
+    An ordinary APK can carry .apk assets - Stitch's own output embeds its helpers as
+    assets/stitch/*.apk - and matching those read it as a bundle, so re-patching a Stitch
+    build went looking for a base.apk that isn't there.
+    """
     with zipfile.ZipFile(path, 'r') as zip_file:
-        for file in zip_file.namelist():
-            if file.endswith('.apk'):
-                return True
-    return False
+        return any(
+            not info.is_dir() and '/' not in info.filename and info.filename.endswith('.apk')
+            for info in zip_file.infolist()
+        )
 
 
 def extract_apk(apk_path: os.PathLike, temp_path: Path, extracted_path: typing.Optional[Path] = None) -> None:
@@ -93,7 +99,15 @@ def _key_args() -> typing.List[str]:
     return args
 
 
+def _ensure_executable(path: os.PathLike) -> None:
+    """Wheels built before the packaging fix installed fastsigner as 0644, so restore the bit in place."""
+    mode = os.stat(path).st_mode
+    if not mode & 0o111:
+        os.chmod(path, mode | 0o111)
+
+
 def sign_apk(bundle_dir: Path, apk_path: Path, output_path: Path, is_bundle_file: bool) -> None:
+    _ensure_executable(FASTSIGNER_PATH)
     args = [str(FASTSIGNER_PATH), *_key_args()]
     if is_bundle_file:
         args.extend([str(apk_path), *glob.glob(str(bundle_dir / '*.apk'))])

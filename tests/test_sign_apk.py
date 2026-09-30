@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 import zipfile
@@ -78,3 +79,16 @@ def test_bundle_apks_are_signed_in_place(tmp_path):
     for apk in (main, split):
         _assert_signed_and_aligned(apk)
     assert not (tmp_path / 'unused.apk').exists()
+
+
+def test_sign_apk_restores_the_executable_bit(tmp_path, monkeypatch):
+    """A wheel built from a 0644 source file installs fastsigner non-executable."""
+    fake_signer = tmp_path / 'fastsigner'
+    fake_signer.write_text('#!/bin/sh\n')
+    fake_signer.chmod(0o644)
+    monkeypatch.setattr(apk_utils, 'FASTSIGNER_PATH', fake_signer)
+    monkeypatch.setattr(apk_utils.subprocess, 'check_call', lambda *a, **k: None)
+
+    apk_utils.sign_apk(tmp_path / 'bundle', tmp_path / 'in.apk', tmp_path / 'out.apk', is_bundle_file=False)
+
+    assert os.access(fake_signer, os.X_OK)
