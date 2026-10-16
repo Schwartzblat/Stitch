@@ -20,14 +20,19 @@ def build_element(xml: str, package: str = 'com.mod') -> lxml.etree.Element:
     return build_manifest(xml, package)[0]
 
 
-def build_module_apk(path, inner: str, package: str = 'com.mod', extra: dict = None):
-    """A zip holding a real binary AndroidManifest.xml, the way an AGP-built module APK does."""
+def build_module_apk(path, inner: str, package: str = 'com.mod', extra: dict = None, split: str = None):
+    """A zip holding a real binary AndroidManifest.xml, the way an AGP-built module APK does.
+
+    Pass split to build a config or asset split rather than a base: it is the
+    manifest's own split attribute, and its absence is what makes a base.
+    """
     import zipfile
     from pyaxml import AXML
 
+    split_attribute = f' split="{split}"' if split else ''
     axml = AXML()
     axml.from_xml(
-        f'<manifest xmlns:android="{ANDROID_NS}" package="{package}">{inner}</manifest>'
+        f'<manifest xmlns:android="{ANDROID_NS}" package="{package}"{split_attribute}>{inner}</manifest>'
     )
     axml.compute()
     with zipfile.ZipFile(path, 'w') as zip_file:

@@ -6,9 +6,20 @@ import subprocess
 import typing
 import zipfile
 import yaml
+from androguard.core.axml import AXMLPrinter
 from stitch.common import APKTOOL_PATH, FASTSIGNER_PATH, DEBUG_KEY_PATH, DEBUG_CERT_PATH, EXTRACTED_PATH, BUNDLE_APK_EXTRACTED_PATH, BUNDLE_DIR_PATH
 
 main_apk_name = 'base.apk'
+
+
+def _split_entries(path: os.PathLike) -> typing.List[str]:
+    """The .apk entries at the root of the zip, which are the splits of a bundle."""
+    with zipfile.ZipFile(path, 'r') as zip_file:
+        return [
+            info.filename for info in zip_file.infolist()
+            if not info.is_dir() and '/' not in info.filename and info.filename.endswith('.apk')
+        ]
+
 
 def is_bundle(path: os.PathLike) -> bool:
     """Only top-level .apk entries make a bundle: an XAPK keeps its splits at the root of the zip.
@@ -17,22 +28,50 @@ def is_bundle(path: os.PathLike) -> bool:
     assets/stitch/*.apk - and matching those read it as a bundle, so re-patching a Stitch
     build went looking for a base.apk that isn't there.
     """
+    return bool(_split_entries(path))
+
+
+def _manifest_split_name(path: os.PathLike, entry: str) -> typing.Optional[str]:
+    """The split attribute of one split's manifest, read without unpacking the split."""
     with zipfile.ZipFile(path, 'r') as zip_file:
-        return any(
-            not info.is_dir() and '/' not in info.filename and info.filename.endswith('.apk')
-            for info in zip_file.infolist()
-        )
+        with zip_file.open(entry) as split_file:
+            with zipfile.ZipFile(split_file) as split:
+                manifest = split.read('AndroidManifest.xml')
+    return AXMLPrinter(manifest).get_xml_obj().get('split')
+
+
+def base_apk_name(path: os.PathLike) -> str:
+    """The split of a bundle that carries the app, and so the one to patch.
+
+    The base is the split whose manifest declares no split name. That is the definition from
+    the App Bundle format, so it holds whatever the splits are called and whatever they weigh:
+    a game that ships its data as an asset split of its own makes the biggest file the wrong
+    one, and patching an asset split decompiles no classes at all.
+
+    Size decides only when the manifests do not: a bundle where no split claims to be the base,
+    or several do, is one Stitch has nothing better to go on for.
+    """
+    entries = _split_entries(path)
+    bases = []
+    for entry in entries:
+        try:
+            if _manifest_split_name(path, entry) is None:
+                bases.append(entry)
+        except Exception:
+            # Not a split whose manifest we can read, so not one we can call the base.
+            # Whichever split does answer still can be.
+            continue
+    if len(bases) == 1:
+        return bases[0]
+    with zipfile.ZipFile(path, 'r') as zip_file:
+        return max(entries, key=lambda name: zip_file.getinfo(name).file_size)
 
 
 def extract_apk(apk_path: os.PathLike, temp_path: Path, extracted_path: typing.Optional[Path] = None) -> None:
-    if str(apk_path).endswith('.xapk'):
-        global main_apk_name
-        with zipfile.ZipFile(apk_path, 'r') as zip_file:
-            apk_files = [file for file in zip_file.namelist() if file.endswith('.apk')]
-            if len(apk_files) == 0:
-                raise ValueError('No APK files found in the XAPK.')
-            main_apk_name = max(apk_files, key=lambda x: zip_file.getinfo(x).file_size)
     if is_bundle(apk_path):
+        global main_apk_name
+        main_apk_name = base_apk_name(apk_path)
+        print(f'[+] Bundle base: {main_apk_name}')
         with zipfile.ZipFile(apk_path, 'r') as zip_file:
             zip_file.extractall(temp_path / BUNDLE_APK_EXTRACTED_PATH)
         os.makedirs(temp_path / BUNDLE_DIR_PATH, exist_ok=True)
@@ -41,6 +80,8 @@ def extract_apk(apk_path: os.PathLike, temp_path: Path, extracted_path: typing.O
                 shutil.copy(apk_file, temp_path / BUNDLE_DIR_PATH)
         extract_apk(temp_path / BUNDLE_APK_EXTRACTED_PATH / main_apk_name, temp_path)
         return
+    if str(apk_path).endswith('.xapk'):
+        raise ValueError('No APK files found in the XAPK.')
     subprocess.check_call(
         [
             "java",
