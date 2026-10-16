@@ -1,4 +1,5 @@
 import glob
+import json
 import os
 from pathlib import Path
 import re
@@ -120,6 +121,18 @@ def inject_module_files(target_apk: Path, generator_apk: Path, arch: str, inject
         for name, (data, compress) in additions.items():
             zout.writestr(name, data, compress_type=compress)
     os.replace(tmp_path, target_apk)
+
+
+def inject_json_asset(apk: Path, name: str, data: dict) -> None:
+    payload = json.dumps(data, sort_keys=True).encode('utf-8')
+    with zipfile.ZipFile(apk, 'r') as zin:
+        entries = [(item, zin.read(item.filename)) for item in zin.infolist() if item.filename != name]
+    tmp_path = apk.with_suffix(apk.suffix + '.tmp')
+    with zipfile.ZipFile(tmp_path, 'w') as zout:
+        for item, content in entries:
+            zout.writestr(item.filename, content, compress_type=item.compress_type)
+        zout.writestr(name, payload, compress_type=zipfile.ZIP_DEFLATED)
+    os.replace(tmp_path, apk)
 
 
 def get_activities_with_entry_points(apk_path: Path) -> list:

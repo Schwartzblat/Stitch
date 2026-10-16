@@ -2,7 +2,7 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from androguard.core.apk import APK
 from stitch.apk_utils import is_bundle
@@ -28,12 +28,14 @@ class Stitch:
     extra_artifacts: dict
     merge_module_manifests: bool
     inject_module_resources: bool
+    artifacts_asset: Optional[str]
 
     def __init__(self, apk_path: str, output_apk: str = 'out.apk', temp_path: str = './temp',
                  external_modules: List[ExternalModule] = None,
                  arch: str = 'arm64-v8a', artifactory_list: List[SimpleArtifactoryFinder] = None,
                  google_api_key: str = None, should_sign=True, extra_artifacts: dict = None,
-                 merge_module_manifests: bool = True, inject_module_resources: bool = True):
+                 merge_module_manifests: bool = True, inject_module_resources: bool = True,
+                 artifacts_asset: Optional[str] = None):
         if external_modules is None:
             external_modules = [ExternalModule(
                 Path('./smali_generator'),
@@ -55,6 +57,8 @@ class Stitch:
         self.extra_artifacts = extra_artifacts
         self.merge_module_manifests = merge_module_manifests
         self.inject_module_resources = inject_module_resources
+        self.artifacts_asset = artifacts_asset
+        self._artifacts: Optional[dict] = None
         self.is_bundle_file = is_bundle(self.apk_path)
 
     def prepare_artifactory(self):
@@ -70,11 +74,16 @@ class Stitch:
             with open(self.artifactory, 'w') as file:
                 json.dump({'SOME_CONST_KEY': 'VALUE'}, file)
 
-    def patch(self):
-        apk_utils.extract_apk(self.apk_path, self.temp_path)
+    def find_artifacts(self) -> dict:
+        if self._artifacts is None:
+            apk_utils.extract_apk(self.apk_path, self.temp_path)
+            artifactory = generate_artifactory(self.temp_path, self.artifactory_list)
+            artifactory.update(self.extra_artifacts)
+            self._artifacts = artifactory
+        return self._artifacts
 
-        artifactory = generate_artifactory(self.temp_path, self.artifactory_list)
-        artifactory.update(self.extra_artifacts)
+    def patch(self):
+        artifactory = self.find_artifacts()
 
         generator_apks = []
         for i, module in enumerate(self.external_modules):
@@ -110,6 +119,9 @@ class Stitch:
         for generator_apk in generator_apks:
             patcher.inject_module_files(temp_output_apk, generator_apk, self.arch,
                                         inject_resources=self.inject_module_resources)
+        if self.artifacts_asset is not None:
+            print(f'[+] Writing the artifacts to {self.artifacts_asset}...')
+            patcher.inject_json_asset(temp_output_apk, self.artifacts_asset, artifactory)
 
         if self.should_sign:
             print('[+] Signing APK...')
