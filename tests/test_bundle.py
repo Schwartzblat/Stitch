@@ -107,3 +107,39 @@ def test_invalid_features_rejected(tmp_path):
     features.write_text('{"required_keys": []}')
     with pytest.raises(ValueError):
         build_bundle(tmp_path / 'b.zip', 'p', '1', [BundleModule('module.apk', hook)], [], features, key_pem)
+
+
+def _rewrite(src, dst, mutate):
+    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, 'w') as zout:
+        mutate(zin, zout)
+    return dst
+
+
+def test_duplicate_entry_names_rejected(tmp_path):
+    out, _, pub_pem = _bundle(tmp_path)
+
+    def mutate(zin, zout):
+        for item in zin.infolist():
+            zout.writestr(item, zin.read(item.filename))
+        with pytest.warns(UserWarning):
+            zout.writestr('features.json', zin.read('features.json'))
+    dup = _rewrite(out, tmp_path / 'dup.zip', mutate)
+    with pytest.raises(BundleError, match='duplicate'):
+        verify_bundle(dup, pub_pem)
+
+
+def test_unknown_format_rejected(tmp_path):
+    out, meta, pub_pem = _bundle(tmp_path)
+    key_pem = tmp_path / 'key.pem'
+    from cryptography.hazmat.primitives import hashes
+    new_meta = json.dumps({**meta, 'format': 2}).encode()
+    private = serialization.load_pem_private_key(key_pem.read_bytes(), None)
+    sig = private.sign(new_meta, ec.ECDSA(hashes.SHA256()))
+
+    def mutate(zin, zout):
+        for item in zin.infolist():
+            data = {'bundle.json': new_meta, 'bundle.sig': sig}.get(item.filename, zin.read(item.filename))
+            zout.writestr(item, data)
+    bad = _rewrite(out, tmp_path / 'f2.zip', mutate)
+    with pytest.raises(BundleError, match='format'):
+        verify_bundle(bad, pub_pem)

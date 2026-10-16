@@ -97,10 +97,15 @@ def verify_bundle(path: Path, public_key_pem: bytes) -> dict:
     try:
         public_key = serialization.load_pem_public_key(public_key_pem)
         with zipfile.ZipFile(path) as zf:
+            names = zf.namelist()
+            if len(names) != len(set(names)):
+                raise BundleError('bundle has duplicate entry names')
             meta_bytes = zf.read('bundle.json')
             signature = zf.read('bundle.sig')
             public_key.verify(signature, meta_bytes, ec.ECDSA(hashes.SHA256()))
             meta = json.loads(meta_bytes)
+            if meta.get('format') != 1:
+                raise BundleError(f'unsupported bundle format: {meta.get("format")!r}')
             expected = set(meta['files'])
             actual = set(zf.namelist()) - {'bundle.json', 'bundle.sig'}
             if expected != actual:

@@ -45,3 +45,9 @@ def test_dex_hash_without_dex_raises(tmp_path):
 def test_apk_sha256_is_the_file_hash(tmp_path):
     apk = _zip(tmp_path / 'a.apk', list(DEX.items()))
     assert apk_sha256(apk) == hashlib.sha256(apk.read_bytes()).hexdigest()
+
+
+def test_dex_hash_ignores_non_ascii_digits(tmp_path):
+    entries = list(DEX.items())
+    with_arabic = entries + [('classes٢.dex', b'not code')]
+    assert dex_sha256(_zip(tmp_path / 'u.apk', with_arabic)) == dex_sha256(_zip(tmp_path / 'p.apk', entries))

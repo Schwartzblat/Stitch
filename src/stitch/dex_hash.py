@@ -9,7 +9,7 @@ import zipfile
 from stitch.apk_utils import base_apk_name, is_bundle
 
 _CHUNK_SIZE = 1024 * 1024
-_DEX_NAME = re.compile(r'classes(\d*)\.dex')
+_DEX_NAME = re.compile(r'classes([0-9]*)\.dex')
 
 
 def _stream_sha256(stream: typing.BinaryIO) -> str:
