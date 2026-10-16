@@ -1,6 +1,6 @@
 [project]
 name = "stitch"
-version = "1.4.4"
+version = "1.5.0"
 description = ""
 authors = [
     { name = "Alon Schwartzblat", email = "alon.ponch@gmail.com" },
@@ -12,7 +12,8 @@ license-files = ["LICENSE"]
 dependencies = [
     "PyYAML",
     "androguard",
-    "pyaxml"
+    "pyaxml",
+    "cryptography"
 ]
 [project.optional-dependencies]
 dev = [
