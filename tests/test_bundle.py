@@ -1,3 +1,4 @@
+import hashlib
 import json
 import zipfile
 
@@ -143,3 +144,48 @@ def test_unknown_format_rejected(tmp_path):
     bad = _rewrite(out, tmp_path / 'f2.zip', mutate)
     with pytest.raises(BundleError, match='format'):
         verify_bundle(bad, pub_pem)
+
+
+def _generic_build(tmp_path, out, extra_files=None, features_path=None):
+    key_pem, pub_pem = _ec_keypair(tmp_path)
+    hook, pay = _modules(tmp_path)
+    meta = build_bundle(out, 'com.example', '1.0.0',
+                        [BundleModule('module.apk', hook), BundleModule('paywall.apk', pay)],
+                        ['com.smali_generator.InitProvider'], features_path, key_pem,
+                        extra_files=extra_files)
+    return meta, pub_pem
+
+
+def test_bundle_without_features_has_no_features_entry(tmp_path):
+    out = tmp_path / 'g.zip'
+    meta, pub = _generic_build(tmp_path, out)
+    assert 'features.json' not in zipfile.ZipFile(out).namelist()
+    assert 'features.json' not in meta['files']
+    assert verify_bundle(out, pub)['package'] == meta['package']
+
+
+def test_extra_files_are_signed(tmp_path):
+    out = tmp_path / 'g.zip'
+    meta, pub = _generic_build(tmp_path, out, extra_files={'catalog.json': b'{"format": 1}'})
+    assert meta['files']['catalog.json'] == hashlib.sha256(b'{"format": 1}').hexdigest()
+    assert verify_bundle(out, pub)['files']['catalog.json'] == meta['files']['catalog.json']
+
+
+def test_tampered_extra_file_fails_verification(tmp_path):
+    out = tmp_path / 'g.zip'
+    _, pub = _generic_build(tmp_path, out, extra_files={'catalog.json': b'{"format": 1}'})
+    tampered = tmp_path / 't.zip'
+    with zipfile.ZipFile(out) as src, zipfile.ZipFile(tampered, 'w') as dst:
+        for item in src.infolist():
+            data = b'{"format": 2}' if item.filename == 'catalog.json' else src.read(item.filename)
+            dst.writestr(item, data)
+    with pytest.raises(BundleError, match='hash mismatch for catalog.json'):
+        verify_bundle(tampered, pub)
+
+
+@pytest.mark.parametrize('name', ['bundle.json', 'bundle.sig', 'features.json', 'manifest-additions.xml', 'module.apk'])
+def test_extra_file_reserved_name_rejected(tmp_path, name):
+    out = tmp_path / 'g.zip'
+    with pytest.raises(BundleError, match='is reserved'):
+        _generic_build(tmp_path, out, extra_files={name: b'x'})
+    assert not out.exists()

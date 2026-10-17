@@ -5,7 +5,7 @@ import shutil
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import lxml.etree
 from androguard.core.apk import APK
@@ -64,15 +64,22 @@ def _min_sdk(apk: Path) -> int:
 
 
 def build_bundle(out_path: Path, package: str, patcher_version: str, modules: List[BundleModule],
-                 providers: List[str], features_path: Path, signing_key_pem: Path,
-                 min_store_version_code: int = 0) -> dict:
-    load_features(features_path)
+                 providers: List[str], features_path: Optional[Path], signing_key_pem: Path,
+                 min_store_version_code: int = 0, extra_files: Optional[Dict[str, bytes]] = None) -> dict:
+    if features_path is not None:
+        load_features(features_path)
+    reserved = {'bundle.json', 'bundle.sig', 'manifest-additions.xml', 'features.json'} | {m.name for m in modules}
+    for name in (extra_files or {}):
+        if name in reserved:
+            raise BundleError(f'extra file name {name!r} is reserved')
     key = serialization.load_pem_private_key(Path(signing_key_pem).read_bytes(), password=None)
     if not isinstance(key, ec.EllipticCurvePrivateKey):
         raise BundleError('the signing key must be an EC key')
     files: Dict[str, bytes] = {m.name: Path(m.apk).read_bytes() for m in modules}
     files['manifest-additions.xml'] = build_manifest_additions(package, providers, [m.apk for m in modules])
-    files['features.json'] = Path(features_path).read_bytes()
+    if features_path is not None:
+        files['features.json'] = Path(features_path).read_bytes()
+    files.update(extra_files or {})
     meta = {
         'format': BUNDLE_FORMAT,
         'package': package,
